@@ -641,7 +641,11 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!mappedData.full_name) {
-        errors.push('Missing Lead Name');
+        const fallbackName = mappedData.company_name
+          || (mappedData.email ? mappedData.email.split('@')[0] : null)
+          || (mappedData.phone ? `Lead ${mappedData.phone}` : `Lead #${idx + 1}`);
+        mappedData.full_name = fallbackName;
+        mappedData.first_name = fallbackName;
       }
 
       let isDuplicate = false;
