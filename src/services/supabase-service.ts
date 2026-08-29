@@ -206,34 +206,22 @@ export class SupabaseCrmService {
         .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
-      let dbLeads: Lead[] = [];
-      let isDbConnected = false;
+      const dbLeads: Lead[] = (!error && data) ? (data as Lead[]) : [];
+      const storeLeads = crmStore.getLeads({ status: 'HISTORICAL_ALL' });
 
-      if (!error && data) {
-        dbLeads = data as Lead[];
-        isDbConnected = true;
-      } else {
-        const fallback = await this.client
-          .from('leads')
-          .select('*')
-          .eq('organization_id', orgId)
-          .eq('is_deleted', false)
-          .order('created_at', { ascending: false });
-        if (!fallback.error && fallback.data) {
-          dbLeads = fallback.data as Lead[];
-          isDbConnected = true;
-        }
-      }
+      const dbEmails = new Set(dbLeads.map((l) => l.email?.toLowerCase().trim()).filter(Boolean));
+      const dbPhones = new Set(dbLeads.map((l) => l.phone?.replace(/\D/g, '')).filter(Boolean));
+      const dbIds = new Set(dbLeads.map((l) => l.id));
 
-      let allMerged: Lead[] = [];
-      if (isDbConnected) {
-        allMerged = dbLeads;
-        if (dbLeads.length === 0) {
-          crmStore.clearAllLeads();
-        }
-      } else {
-        allMerged = crmStore.getLeads({ status: 'HISTORICAL_ALL' });
-      }
+      const uniqueStoreLeads = storeLeads.filter((l) => {
+        if (!l || !l.id) return false;
+        if (dbIds.has(l.id)) return false;
+        if (l.email && dbEmails.has(l.email.toLowerCase().trim())) return false;
+        if (l.phone && dbPhones.has(l.phone.replace(/\D/g, ''))) return false;
+        return true;
+      });
+
+      let allMerged = [...dbLeads, ...uniqueStoreLeads];
 
       const requestedStatus = filters?.status || 'ALL';
       if (requestedStatus === 'NEW') {
