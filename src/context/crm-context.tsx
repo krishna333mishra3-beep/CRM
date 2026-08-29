@@ -230,9 +230,6 @@ export function CrmProvider({ children }: { children: React.ReactNode }) {
   const refreshAll = useCallback(async () => {
     setIsLoadingData(true);
     try {
-      // Auto-sync any local leads stored in browser localStorage to Supabase DB
-      await supabaseCrm.syncLocalLeadsToSupabase(orgId);
-
       // Direct live queries with Promise.allSettled
       const [leadsRes, allLeadsRes, compsRes, contsRes, pipesRes, dealsRes, paysRes, tasksRes, actsRes, logsRes, fieldsRes, statsRes] =
         await Promise.allSettled([
