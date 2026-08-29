@@ -206,7 +206,13 @@ export class SupabaseCrmService {
         .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
-      if (error) {
+      let dbLeads: Lead[] = [];
+      let isDbConnected = false;
+
+      if (!error && data) {
+        dbLeads = data as Lead[];
+        isDbConnected = true;
+      } else {
         const fallback = await this.client
           .from('leads')
           .select('*')
@@ -214,26 +220,20 @@ export class SupabaseCrmService {
           .eq('is_deleted', false)
           .order('created_at', { ascending: false });
         if (!fallback.error && fallback.data) {
-          data = fallback.data as any;
-          error = null;
+          dbLeads = fallback.data as Lead[];
+          isDbConnected = true;
         }
       }
 
-      const dbLeads: Lead[] = (!error && data) ? (data as Lead[]) : [];
-      const storeLeads = crmStore.getLeads({ status: 'HISTORICAL_ALL' });
-
-      const dbEmails = new Set(dbLeads.map((l) => l.email?.toLowerCase().trim()).filter(Boolean));
-      const dbPhones = new Set(dbLeads.map((l) => l.phone?.replace(/\D/g, '')).filter(Boolean));
-      const dbIds = new Set(dbLeads.map((l) => l.id));
-
-      const uniqueStoreLeads = storeLeads.filter((l) => {
-        if (dbIds.has(l.id)) return false;
-        if (l.email && dbEmails.has(l.email.toLowerCase().trim())) return false;
-        if (l.phone && dbPhones.has(l.phone.replace(/\D/g, ''))) return false;
-        return true;
-      });
-
-      let allMerged = [...dbLeads, ...uniqueStoreLeads];
+      let allMerged: Lead[] = [];
+      if (isDbConnected) {
+        allMerged = dbLeads;
+        if (dbLeads.length === 0) {
+          crmStore.clearAllLeads();
+        }
+      } else {
+        allMerged = crmStore.getLeads({ status: 'HISTORICAL_ALL' });
+      }
 
       const requestedStatus = filters?.status || 'ALL';
       if (requestedStatus === 'NEW') {
@@ -410,15 +410,14 @@ export class SupabaseCrmService {
 
   async clearAllLeads(orgId: string): Promise<boolean> {
     crmStore.clearAllLeads();
+    crmStore.clearAllDeals();
+    crmStore.clearAllPayments();
     try {
-      await this.client
-        .from('leads')
-        .update({ is_deleted: true, updated_at: new Date().toISOString() })
-        .eq('organization_id', orgId);
-      await this.client
-        .from('leads')
-        .delete()
-        .eq('organization_id', orgId);
+      await this.client.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await this.client.from('deals').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await this.client.from('activities').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await this.client.from('tasks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await this.client.from('leads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     } catch (e) {
       console.warn('clearAllLeads remote delete exception:', e);
     }
