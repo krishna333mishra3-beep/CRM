@@ -1,0 +1,27 @@
+import type { Metadata } from 'next';
+import './globals.css';
+import { AuthProvider } from '@/context/auth-context';
+import { CrmProvider } from '@/context/crm-context';
+
+export const metadata: Metadata = {
+  title: 'First Click CRM | Enterprise Sales & Lead Engine',
+  description: 'Production-ready modern SaaS CRM for leads, sales pipeline, and business automation.',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body className="antialiased min-h-screen bg-slate-50 text-slate-900 selection:bg-indigo-500 selection:text-white">
+        <AuthProvider>
+          <CrmProvider>
+            {children}
+          </CrmProvider>
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
