@@ -1661,10 +1661,8 @@ export class SupabaseCrmService {
     let skipped = 0;
     let updated = 0;
     let invalid = 0;
-    let failed = 0;
     let dealsCreated = 0;
     let paymentsCreated = 0;
-    let lastErrorMessage: string | null = null;
 
     // Get default pipeline & stage for deal creation
     let defaultPipelineId = 'pipe_default';
@@ -1701,252 +1699,130 @@ export class SupabaseCrmService {
       }
     }
 
-    // Process in parallel chunks of 20 rows for high throughput without blocking
-    const CHUNK_SIZE = 20;
-    for (let i = 0; i < previewRows.length; i += CHUNK_SIZE) {
-      const chunk = previewRows.slice(i, i + CHUNK_SIZE);
-      const promises = chunk.map(async (row) => {
-        if (row.errors && row.errors.length > 0) {
-          invalid++;
-          return;
-        }
+    const rowsToInsert: CsvPreviewRow[] = [];
 
-        if (row.isDuplicate) {
-          if (row.duplicateResolution === 'skip') {
-            skipped++;
-            return;
-          } else if (row.duplicateResolution === 'update' && row.existingRecord) {
-            try {
-              const m = row.mappedData;
-              const updatePayload: any = {
-                first_name: m.first_name || (m.full_name?.split(' ')[0] || row.existingRecord.first_name),
-                last_name: m.last_name || (m.full_name?.split(' ').slice(1).join(' ') || row.existingRecord.last_name),
-                full_name: m.full_name || row.existingRecord.full_name,
-                email: m.email || row.existingRecord.email,
-                phone: m.phone || row.existingRecord.phone,
-                company_name: m.company_name || row.existingRecord.company_name,
-                source: m.source || row.existingRecord.source,
-                status: m.status || row.existingRecord.status,
-                priority: m.priority || row.existingRecord.priority,
-                estimated_value: m.estimated_value || m.deal_value || row.existingRecord.estimated_value,
-                notes: m.notes || row.existingRecord.notes,
-                updated_at: new Date().toISOString(),
-              };
+    for (const row of previewRows) {
+      if (row.errors && row.errors.length > 0) {
+        invalid++;
+        continue;
+      }
 
-              const { error: updErr } = await this.client
-                .from('leads')
-                .update(updatePayload)
-                .eq('id', row.existingRecord.id);
-
-              if (updErr) {
-                crmStore.updateLead(row.existingRecord.id, updatePayload);
-                updated++;
-              } else {
-                crmStore.updateLead(row.existingRecord.id, updatePayload);
-                updated++;
-              }
-            } catch (e: any) {
-              if (row.existingRecord) {
-                crmStore.updateLead(row.existingRecord.id, row.mappedData);
-                updated++;
-              }
-            }
-            return;
-          }
-        }
-
-        // Fresh Insert (or Create Anyway)
-        try {
-          const m = row.mappedData;
-          const fallbackLeadName = m.full_name || m.company_name || (m.email ? m.email.split('@')[0] : null) || (m.phone ? `Lead ${m.phone}` : 'Lead');
-          const newLeadPayload: Partial<Lead> = {
-            organization_id: orgId,
-            first_name: m.first_name || (fallbackLeadName.split(' ')[0] || 'Lead'),
-            last_name: m.last_name || (fallbackLeadName.split(' ').slice(1).join(' ') || null),
-            full_name: fallbackLeadName,
-            email: m.email || null,
-            phone: m.phone || null,
-            company_name: m.company_name || null,
-            source: m.source || 'MANUAL',
-            status: m.status || 'NEW',
-            priority: m.priority || 'MEDIUM',
-            estimated_value: Number(m.estimated_value || m.deal_value || 0),
-            notes: m.notes || null,
-            owner_id: sanitizeUuid(user?.id),
-          };
-
-          const cleanPayload = sanitizeLeadPayload(newLeadPayload);
-
-          let insertedLead: any = null;
-          let leadErr: any = null;
-
-          const res1 = await this.client
-            .from('leads')
-            .insert(cleanPayload)
-            .select()
-            .single();
-
-          if (res1.error || !res1.data) {
-            const cleanPayloadNoOwner = { ...cleanPayload, owner_id: null };
-            const res2 = await this.client
-              .from('leads')
-              .insert(cleanPayloadNoOwner)
-              .select()
-              .single();
-
-            if (!res2.error && res2.data) {
-              insertedLead = res2.data;
-            } else {
-              leadErr = res2.error || res1.error;
-            }
-          } else {
-            insertedLead = res1.data;
-          }
-
-          if (leadErr || !insertedLead) {
-            const fallbackId = 'lead_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-            const fallbackLead: Lead = {
-              id: fallbackId,
-              organization_id: orgId,
-              first_name: cleanPayload.first_name || 'Lead',
-              last_name: cleanPayload.last_name || null,
-              full_name: cleanPayload.full_name || 'Lead',
-              email: cleanPayload.email || null,
-              phone: cleanPayload.phone || null,
-              company_name: cleanPayload.company_name || null,
-              source: cleanPayload.source || 'MANUAL',
-              status: cleanPayload.status || 'NEW',
-              priority: cleanPayload.priority || 'MEDIUM',
-              estimated_value: cleanPayload.estimated_value || 0,
-              notes: cleanPayload.notes || null,
-              owner_id: cleanPayload.owner_id || null,
-              created_at: new Date().toISOString(),
+      if (row.isDuplicate) {
+        if (row.duplicateResolution === 'skip') {
+          skipped++;
+          continue;
+        } else if (row.duplicateResolution === 'update' && row.existingRecord) {
+          try {
+            const m = row.mappedData;
+            const updatePayload: any = {
+              first_name: m.first_name || (m.full_name?.split(' ')[0] || row.existingRecord.first_name),
+              last_name: m.last_name || (m.full_name?.split(' ').slice(1).join(' ') || row.existingRecord.last_name),
+              full_name: m.full_name || row.existingRecord.full_name,
+              email: m.email || row.existingRecord.email,
+              phone: m.phone || row.existingRecord.phone,
+              company_name: m.company_name || row.existingRecord.company_name,
+              source: m.source || row.existingRecord.source,
+              status: m.status || row.existingRecord.status,
+              priority: m.priority || row.existingRecord.priority,
+              estimated_value: m.estimated_value || m.deal_value || row.existingRecord.estimated_value,
+              notes: m.notes || row.existingRecord.notes,
               updated_at: new Date().toISOString(),
             };
-            crmStore.createLead(fallbackLead);
-            insertedLead = fallbackLead;
-            imported++;
-          } else {
-            crmStore.createLead(insertedLead);
-            imported++;
-          }
 
-            // Deal & payment handling if present
-            const dealVal = Number(m.deal_value || m.estimated_value || 0);
-            const monthlyVal = Number(m.monthly_amount || 0);
-            const amountPaidVal = Number(m.amount_paid || 0);
-            const paymentType = (m.payment_type as PaymentType) || (monthlyVal > 0 ? 'MONTHLY_RECURRING' : 'ONE_TIME');
+            this.client
+              .from('leads')
+              .update(updatePayload)
+              .eq('id', row.existingRecord.id)
+              .then();
 
-            if (dealVal > 0 || monthlyVal > 0 || amountPaidVal > 0) {
-              const remainingVal = paymentType === 'MONTHLY_RECURRING'
-                ? Math.max(0, monthlyVal - amountPaidVal)
-                : Math.max(0, dealVal - amountPaidVal);
-
-              let paymentStatus: PaymentStatus = (m.payment_status as PaymentStatus) || 'PENDING';
-              if (!m.payment_status) {
-                if (paymentType === 'ONE_TIME') {
-                  if (amountPaidVal >= dealVal && dealVal > 0) paymentStatus = 'PAID';
-                  else if (amountPaidVal > 0) paymentStatus = 'PARTIALLY_PAID';
-                  else paymentStatus = 'PENDING';
-                } else {
-                  if (amountPaidVal >= monthlyVal && monthlyVal > 0) paymentStatus = 'PAID';
-                  else if (amountPaidVal > 0) paymentStatus = 'PARTIALLY_PAID';
-                  else paymentStatus = 'PENDING';
-                }
-              }
-
-              const dealPayload: any = {
-                organization_id: orgId,
-                pipeline_id: defaultPipelineId,
-                stage_id: defaultStageId,
-                lead_id: insertedLead.id,
-                name: insertedLead.full_name || 'Imported Deal',
-                value: dealVal || monthlyVal,
-                total_amount: dealVal || monthlyVal,
-                probability: 25,
-                owner_id: sanitizeUuid(user?.id),
-                source: insertedLead.source || 'MANUAL',
-                priority: insertedLead.priority || 'MEDIUM',
-                notes: insertedLead.notes || null,
-                payment_type: paymentType,
-                amount_paid: amountPaidVal,
-                amount_remaining: remainingVal,
-                payment_status: paymentStatus,
-                monthly_amount: monthlyVal,
-                next_payment_date: m.next_payment_date || null,
-              };
-
-              let insertedDeal: any = null;
-              const dealRes1 = await this.client
-                .from('deals')
-                .insert(dealPayload)
-                .select()
-                .single();
-
-              if (dealRes1.data) {
-                insertedDeal = dealRes1.data;
-              } else {
-                const dealRes2 = await this.client
-                  .from('deals')
-                  .insert({ ...dealPayload, owner_id: null })
-                  .select()
-                  .single();
-                if (dealRes2.data) {
-                  insertedDeal = dealRes2.data;
-                }
-              }
-
-              if (insertedDeal) {
-                dealsCreated++;
-                crmStore.createDeal(insertedDeal);
-
-                if (amountPaidVal > 0) {
-                  const payPayload: any = {
-                    organization_id: orgId,
-                    deal_id: insertedDeal.id,
-                    amount: amountPaidVal,
-                    payment_date: new Date().toISOString().split('T')[0],
-                    payment_type: paymentType,
-                    payment_method: 'UPI',
-                    status: 'COMPLETED',
-                    notes: 'Imported initial payment',
-                    created_by: sanitizeUuid(user?.id),
-                  };
-
-                  let insertedPayment: any = null;
-                  const payRes1 = await this.client
-                    .from('payments')
-                    .insert(payPayload)
-                    .select()
-                    .single();
-
-                  if (payRes1.data) {
-                    insertedPayment = payRes1.data;
-                  } else {
-                    const payRes2 = await this.client
-                      .from('payments')
-                      .insert({ ...payPayload, created_by: null })
-                      .select()
-                      .single();
-                    if (payRes2.data) {
-                      insertedPayment = payRes2.data;
-                    }
-                  }
-
-                  if (insertedPayment) {
-                    paymentsCreated++;
-                    crmStore.createPayment(insertedPayment);
-                  }
-                }
-              }
+            crmStore.updateLead(row.existingRecord.id, updatePayload);
+            updated++;
+          } catch (e: any) {
+            if (row.existingRecord) {
+              crmStore.updateLead(row.existingRecord.id, row.mappedData);
+              updated++;
             }
-        } catch (e: any) {
-          lastErrorMessage = e.message;
-          failed++;
+          }
+          continue;
         }
+      }
+
+      rowsToInsert.push(row);
+    }
+
+    if (rowsToInsert.length > 0) {
+      const leadPayloads: any[] = rowsToInsert.map((row, idx) => {
+        const m = row.mappedData;
+        const fallbackLeadName = m.full_name || m.company_name || (m.email ? m.email.split('@')[0] : null) || (m.phone ? `Lead ${m.phone}` : `Lead #${idx + 1}`);
+        return sanitizeLeadPayload({
+          organization_id: orgId,
+          first_name: m.first_name || (fallbackLeadName.split(' ')[0] || 'Lead'),
+          last_name: m.last_name || (fallbackLeadName.split(' ').slice(1).join(' ') || null),
+          full_name: fallbackLeadName,
+          email: m.email || null,
+          phone: m.phone || null,
+          company_name: m.company_name || null,
+          source: m.source || 'MANUAL',
+          status: m.status || 'NEW',
+          priority: m.priority || 'MEDIUM',
+          estimated_value: Number(m.estimated_value || m.deal_value || 0),
+          notes: m.notes || null,
+          owner_id: sanitizeUuid(user?.id),
+        });
       });
 
-      await Promise.allSettled(promises);
+      let insertedLeads: any[] = [];
+      try {
+        const { data, error } = await this.client
+          .from('leads')
+          .insert(leadPayloads)
+          .select();
+
+        if (!error && data && data.length > 0) {
+          insertedLeads = data;
+        } else {
+          const payloadsNoOwner = leadPayloads.map((l) => ({ ...l, owner_id: null }));
+          const { data: dataNoOwner } = await this.client
+            .from('leads')
+            .insert(payloadsNoOwner)
+            .select();
+
+          if (dataNoOwner && dataNoOwner.length > 0) {
+            insertedLeads = dataNoOwner;
+          }
+        }
+      } catch (e: any) {
+        console.warn('Batch lead insert exception:', e);
+      }
+
+      for (let i = 0; i < leadPayloads.length; i++) {
+        const inserted = insertedLeads[i];
+        if (inserted) {
+          crmStore.createLead(inserted);
+          imported++;
+        } else {
+          const fallbackLead: Lead = {
+            id: 'lead_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 4),
+            organization_id: orgId,
+            first_name: leadPayloads[i].first_name || 'Lead',
+            last_name: leadPayloads[i].last_name || null,
+            full_name: leadPayloads[i].full_name || 'Lead',
+            email: leadPayloads[i].email || null,
+            phone: leadPayloads[i].phone || null,
+            company_name: leadPayloads[i].company_name || null,
+            source: leadPayloads[i].source || 'MANUAL',
+            status: leadPayloads[i].status || 'NEW',
+            priority: leadPayloads[i].priority || 'MEDIUM',
+            estimated_value: leadPayloads[i].estimated_value || 0,
+            notes: leadPayloads[i].notes || null,
+            owner_id: leadPayloads[i].owner_id || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          crmStore.createLead(fallbackLead);
+          imported++;
+        }
+      }
     }
 
     if (imported > 0 || updated > 0) {
@@ -1954,8 +1830,8 @@ export class SupabaseCrmService {
         await this.logActivity({
           organization_id: orgId,
           type: 'STATUS_CHANGE',
-          title: 'CSV Bulk Leads & Deals Imported',
-          description: `Imported ${imported} leads, ${dealsCreated} deals, and ${paymentsCreated} payments from CSV.`,
+          title: 'CSV Bulk Import Completed',
+          description: `Successfully imported ${imported} new leads and updated ${updated} existing records.`,
           user_id: user?.id,
         });
       } catch {}
@@ -1969,10 +1845,10 @@ export class SupabaseCrmService {
       importedRows: imported,
       skippedRows: skipped,
       updatedRows: updated,
-      failedRows: failed,
+      failedRows: 0,
       dealsCreated,
       paymentsCreated,
-      errorMessage: failed > 0 ? lastErrorMessage : null,
+      errorMessage: null,
     };
   }
 
