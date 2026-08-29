@@ -410,8 +410,6 @@ export class SupabaseCrmService {
 
   async clearAllLeads(orgId: string): Promise<boolean> {
     crmStore.clearAllLeads();
-    crmStore.clearAllDeals();
-    crmStore.clearAllPayments();
     try {
       await this.client.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await this.client.from('deals').delete().neq('id', '00000000-0000-0000-0000-000000000000');
