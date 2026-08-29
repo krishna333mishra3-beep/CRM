@@ -223,11 +223,18 @@ export class SupabaseCrmService {
 
       let allMerged = [...dbLeads, ...uniqueStoreLeads];
 
-      const requestedStatus = filters?.status || 'ALL';
+      const requestedStatus = (filters?.status || 'ALL').toUpperCase();
       if (requestedStatus === 'NEW') {
-        allMerged = allMerged.filter((l) => l.status === 'NEW' || !l.status);
+        allMerged = allMerged.filter((l) => !l.status || l.status.toUpperCase() === 'NEW');
       } else if (requestedStatus !== 'ALL' && requestedStatus !== 'HISTORICAL_ALL') {
-        allMerged = allMerged.filter((l) => l.status === requestedStatus);
+        allMerged = allMerged.filter((l) => {
+          if (!l.status) return false;
+          const st = l.status.toUpperCase();
+          if (requestedStatus === 'DEMO') return st === 'DEMO' || st === 'DEMO_SCHEDULED';
+          if (requestedStatus === 'FOLLOW_UP') return st === 'FOLLOW_UP' || st === 'FOLLOWUP';
+          if (requestedStatus === 'NOT_PICKED') return st === 'NOT_PICKED' || st === 'NOTPICKED';
+          return st === requestedStatus;
+        });
       }
 
       if (filters?.search && filters.search.trim()) {
