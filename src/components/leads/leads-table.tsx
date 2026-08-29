@@ -184,11 +184,11 @@ export function LeadsTable() {
   // Compute live counts for each tab independently
   const getTabCount = (statusCode: string) => {
     const list = Array.isArray(allLeads) && allLeads.length > 0 ? allLeads : Array.isArray(leads) ? leads : [];
-    if (statusCode === 'ALL' || statusCode === 'NEW') {
-      return list.filter((l) => l && (l.status === 'NEW' || !l.status)).length;
-    }
-    if (statusCode === 'HISTORICAL_ALL') {
+    if (statusCode === 'ALL' || statusCode === 'HISTORICAL_ALL') {
       return list.length;
+    }
+    if (statusCode === 'NEW') {
+      return list.filter((l) => l && (l.status === 'NEW' || !l.status)).length;
     }
     return list.filter((l) => l && l.status === statusCode).length;
   };
